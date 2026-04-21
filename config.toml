@@ -1,0 +1,54 @@
+# weighterm – default configuration
+# Place this file at ~/.config/weighterm/config.toml
+# All values shown below are the built-in defaults.
+
+[window]
+width  = 1024
+height = 768
+title  = "weighterm"
+# Background opacity (0.0 – 1.0).  Values < 1.0 require a compositor.
+opacity = 1.0
+
+[font]
+# Any font family name recognised by fontconfig / your system font database.
+# For ligature support install a font such as JetBrains Mono, Fira Code or
+# Cascadia Code and set the name here.
+family = "monospace"
+size   = 14.0
+# Enable HarfBuzz ligature shaping (Advanced).  Set to false for Basic shaping.
+ligatures = true
+
+[theme]
+# Built-in theme names: "night-owl", "default"
+# Individual colour values below override whatever the named theme provides.
+name = "night-owl"
+
+background    = "#011627"
+foreground    = "#d6deeb"
+cursor        = "#80a4c2"
+
+# ANSI 0-7
+black         = "#011627"
+red           = "#ef5350"
+green         = "#22da6e"
+yellow        = "#addb67"
+blue          = "#82aaff"
+magenta       = "#c792ea"
+cyan          = "#21c7a8"
+white         = "#d6deeb"
+
+# ANSI 8-15 (bright)
+bright_black   = "#575656"
+bright_red     = "#ef5350"
+bright_green   = "#22da6e"
+bright_yellow  = "#ffeb95"
+bright_blue    = "#82aaff"
+bright_magenta = "#c792ea"
+bright_cyan    = "#7fdbca"
+bright_white   = "#ffffff"
+
+[performance]
+# Number of lines kept in the scrollback buffer.
+scrollback_lines  = 10000
+# Pixels scrolled per scroll-wheel notch.
+scroll_multiplier = 3.0

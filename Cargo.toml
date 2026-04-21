@@ -1,0 +1,62 @@
+[package]
+name = "weighterm"
+version = "0.1.0"
+edition = "2021"
+description = "A minimal, high-performance Wayland terminal emulator"
+license = "MIT"
+authors = ["weighterm contributors"]
+repository = "https://github.com/eisenhowerj/weighterm"
+keywords = ["terminal", "emulator", "wayland", "wgpu"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "weighterm"
+path = "src/main.rs"
+
+[dependencies]
+# Window management (cross-platform, Wayland-first on Linux)
+winit = "0.29"
+
+# GPU-accelerated rendering
+wgpu = { version = "0.19", features = ["wgsl"] }
+
+# Text shaping with ligature support (uses HarfBuzz/rustybuzz under the hood)
+cosmic-text = "0.11"
+
+# VT102 / VT220 escape-sequence state machine
+vte = "0.13"
+
+# Cross-platform pseudo-terminal creation
+portable-pty = "0.8"
+
+# Configuration (TOML)
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# GPU buffer helpers
+bytemuck = { version = "1", features = ["derive"] }
+
+# Async executor for wgpu initialisation
+pollster = "0.3"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Platform directories (XDG config)
+dirs = "5"
+
+# Lock-free cross-thread channels
+crossbeam-channel = "0.5"
+
+# Unicode character widths (wide / full-width CJK etc.)
+unicode-width = "0.1"
+
+# Bit-flag helper for cell attribute sets
+bitflags = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
