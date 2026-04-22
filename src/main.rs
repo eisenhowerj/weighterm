@@ -18,16 +18,16 @@ use std::sync::{Arc, Mutex};
 use winit::event::{ElementState, Event, KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
-use winit::window::{Window, WindowButtons, WindowBuilder};
+use winit::window::{Window, WindowBuilder, WindowButtons};
 
 mod config;
-mod terminal;
 mod pty;
 mod renderer;
+mod terminal;
 
 use config::Config;
-use terminal::{TerminalState, process_bytes};
 use renderer::Renderer;
+use terminal::{process_bytes, TerminalState};
 
 // ── Custom event type ────────────────────────────────────────────────────────
 
@@ -56,15 +56,17 @@ fn main() {
     let proxy = event_loop.create_proxy();
 
     // Mutable application state (all owned by the event-loop closure)
-    let mut window:     Option<Arc<Window>>   = None;
-    let mut renderer:   Option<Renderer>      = None;
-    let terminal = Arc::new(Mutex::new(
-        TerminalState::new(80, 24, cfg.performance.scrollback_lines),
-    ));
+    let mut window: Option<Arc<Window>> = None;
+    let mut renderer: Option<Renderer> = None;
+    let terminal = Arc::new(Mutex::new(TerminalState::new(
+        80,
+        24,
+        cfg.performance.scrollback_lines,
+    )));
     let mut vte_parser = vte::Parser::new();
     let mut pty_handle: Option<pty::PtyHandle> = None;
-    let mut modifiers  = ModifiersState::empty();
-    let mut maximised  = false;
+    let mut modifiers = ModifiersState::empty();
+    let mut maximised = false;
 
     let cfg_clone = Arc::clone(&cfg);
 
@@ -76,7 +78,9 @@ fn main() {
         match event {
             // ── Window creation ───────────────────────────────────────────────
             Event::Resumed => {
-                if window.is_some() { return; }
+                if window.is_some() {
+                    return;
+                }
 
                 let win = WindowBuilder::new()
                     .with_title(&cfg_clone.window.title)
@@ -85,9 +89,7 @@ fn main() {
                         cfg_clone.window.height,
                     ))
                     .with_enabled_buttons(
-                        WindowButtons::CLOSE
-                            | WindowButtons::MINIMIZE
-                            | WindowButtons::MAXIMIZE,
+                        WindowButtons::CLOSE | WindowButtons::MINIMIZE | WindowButtons::MAXIMIZE,
                     )
                     .build(elwt)
                     .expect("Failed to create window");
@@ -95,7 +97,9 @@ fn main() {
                 let win = Arc::new(win);
 
                 match pollster::block_on(Renderer::new(Arc::clone(&win), &cfg_clone)) {
-                    Ok(r) => { renderer = Some(r); }
+                    Ok(r) => {
+                        renderer = Some(r);
+                    }
                     Err(e) => {
                         log::error!("Renderer init failed: {e}");
                         elwt.exit();
@@ -136,7 +140,9 @@ fn main() {
                 }
 
                 window = Some(win);
-                if let Some(ref w) = window { w.request_redraw(); }
+                if let Some(ref w) = window {
+                    w.request_redraw();
+                }
             }
 
             // ── Window events ─────────────────────────────────────────────────
@@ -158,7 +164,9 @@ fn main() {
                                 h.resize(cols as u16, rows as u16);
                             }
                         }
-                        if let Some(ref w) = window { w.request_redraw(); }
+                        if let Some(ref w) = window {
+                            w.request_redraw();
+                        }
                     }
 
                     WindowEvent::ModifiersChanged(mods) => {
@@ -167,9 +175,12 @@ fn main() {
 
                     WindowEvent::KeyboardInput { event, .. } => {
                         handle_key(
-                            &event, modifiers,
-                            &window, &pty_handle,
-                            &mut maximised, elwt,
+                            &event,
+                            modifiers,
+                            &window,
+                            &pty_handle,
+                            &mut maximised,
+                            elwt,
                         );
                     }
 
@@ -178,9 +189,8 @@ fn main() {
                             MouseScrollDelta::LineDelta(_, y) => y,
                             MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 20.0,
                         };
-                        let n = (lines.abs()
-                            * cfg_clone.performance.scroll_multiplier)
-                            .max(1.0) as usize;
+                        let n = (lines.abs() * cfg_clone.performance.scroll_multiplier).max(1.0)
+                            as usize;
                         // TODO: implement scrollback viewport – update terminal
                         // scroll offset and re-render the correct slice.
                         if lines > 0.0 {
@@ -188,14 +198,14 @@ fn main() {
                         } else {
                             log::debug!("Scroll down {n} (scrollback not yet implemented)");
                         }
-                        if let Some(ref w) = window { w.request_redraw(); }
+                        if let Some(ref w) = window {
+                            w.request_redraw();
+                        }
                     }
 
                     // In winit 0.29, RedrawRequested is a WindowEvent
                     WindowEvent::RedrawRequested => {
-                        if let (Some(ref mut r), Ok(term)) =
-                            (&mut renderer, terminal.lock())
-                        {
+                        if let (Some(ref mut r), Ok(term)) = (&mut renderer, terminal.lock()) {
                             match r.render(&term, &cfg_clone) {
                                 Ok(()) => {}
                                 Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
@@ -227,7 +237,9 @@ fn main() {
                         w.set_title(&title);
                     }
                 }
-                if let Some(ref w) = window { w.request_redraw(); }
+                if let Some(ref w) = window {
+                    w.request_redraw();
+                }
             }
 
             Event::UserEvent(AppEvent::PtyExit) => {
@@ -243,19 +255,21 @@ fn main() {
 // ── Keyboard → PTY bytes ──────────────────────────────────────────────────────
 
 fn handle_key(
-    event:      &KeyEvent,
-    modifiers:  ModifiersState,
-    window:     &Option<Arc<Window>>,
+    event: &KeyEvent,
+    modifiers: ModifiersState,
+    window: &Option<Arc<Window>>,
     pty_handle: &Option<pty::PtyHandle>,
-    maximised:  &mut bool,
-    elwt:       &winit::event_loop::EventLoopWindowTarget<AppEvent>,
+    maximised: &mut bool,
+    elwt: &winit::event_loop::EventLoopWindowTarget<AppEvent>,
 ) {
-    if event.state != ElementState::Pressed { return; }
+    if event.state != ElementState::Pressed {
+        return;
+    }
 
-    let ctrl  = modifiers.control_key();
+    let ctrl = modifiers.control_key();
     let shift = modifiers.shift_key();
-    let alt   = modifiers.alt_key();
-    let logo  = modifiers.super_key();
+    let alt = modifiers.alt_key();
+    let logo = modifiers.super_key();
 
     // ── Window-control shortcuts ──────────────────────────────────────────────
     match &event.logical_key {
@@ -278,12 +292,17 @@ fn handle_key(
             return;
         }
         Key::Named(NamedKey::ArrowDown) if logo => {
-            if let Some(w) = window { w.set_minimized(true); }
+            if let Some(w) = window {
+                w.set_minimized(true);
+            }
             return;
         }
         Key::Character(s) if ctrl && shift => {
             match s.as_str() {
-                "q" | "Q" => { elwt.exit(); return; }
+                "q" | "Q" => {
+                    elwt.exit();
+                    return;
+                }
                 "v" | "V" => {
                     // Paste – TODO: integrate clipboard crate
                     return;
@@ -313,7 +332,9 @@ fn handle_key(
                             _ => s.as_bytes().to_vec(),
                         }
                     }
-                } else { vec![] }
+                } else {
+                    vec![]
+                }
             } else if alt {
                 let mut v = vec![0x1b];
                 v.extend_from_slice(s.as_bytes());
@@ -327,7 +348,9 @@ fn handle_key(
     };
 
     if !bytes.is_empty() {
-        if let Some(h) = pty_handle { h.write(bytes); }
+        if let Some(h) = pty_handle {
+            h.write(bytes);
+        }
     }
 }
 
@@ -350,37 +373,44 @@ fn named_key_to_bytes(key: &NamedKey, ctrl: bool, alt: bool) -> Vec<u8> {
     };
 
     match key {
-        NamedKey::Enter     => maybe_alt(vec![b'\r']),
+        NamedKey::Enter => maybe_alt(vec![b'\r']),
         NamedKey::Backspace => {
-            if ctrl { vec![0x08] } else { maybe_alt(vec![0x7f]) }
+            if ctrl {
+                vec![0x08]
+            } else {
+                maybe_alt(vec![0x7f])
+            }
         }
         NamedKey::Escape => vec![0x1b],
-        NamedKey::Tab    => {
-            if ctrl { esc("[Z") } else { maybe_alt(vec![b'\t']) }
+        NamedKey::Tab => {
+            if ctrl {
+                esc("[Z")
+            } else {
+                maybe_alt(vec![b'\t'])
+            }
         }
-        NamedKey::ArrowUp    => esc("[A"),
-        NamedKey::ArrowDown  => esc("[B"),
+        NamedKey::ArrowUp => esc("[A"),
+        NamedKey::ArrowDown => esc("[B"),
         NamedKey::ArrowRight => esc("[C"),
-        NamedKey::ArrowLeft  => esc("[D"),
-        NamedKey::Home   => esc("[H"),
-        NamedKey::End    => esc("[F"),
+        NamedKey::ArrowLeft => esc("[D"),
+        NamedKey::Home => esc("[H"),
+        NamedKey::End => esc("[F"),
         NamedKey::Insert => esc("[2~"),
         NamedKey::Delete => esc("[3~"),
-        NamedKey::PageUp   => esc("[5~"),
+        NamedKey::PageUp => esc("[5~"),
         NamedKey::PageDown => esc("[6~"),
-        NamedKey::F1  => esc("OP"),
-        NamedKey::F2  => esc("OQ"),
-        NamedKey::F3  => esc("OR"),
-        NamedKey::F4  => esc("OS"),
-        NamedKey::F5  => esc("[15~"),
-        NamedKey::F6  => esc("[17~"),
-        NamedKey::F7  => esc("[18~"),
-        NamedKey::F8  => esc("[19~"),
-        NamedKey::F9  => esc("[20~"),
+        NamedKey::F1 => esc("OP"),
+        NamedKey::F2 => esc("OQ"),
+        NamedKey::F3 => esc("OR"),
+        NamedKey::F4 => esc("OS"),
+        NamedKey::F5 => esc("[15~"),
+        NamedKey::F6 => esc("[17~"),
+        NamedKey::F7 => esc("[18~"),
+        NamedKey::F8 => esc("[19~"),
+        NamedKey::F9 => esc("[20~"),
         NamedKey::F10 => esc("[21~"),
         NamedKey::F11 => esc("[23~"),
         NamedKey::F12 => esc("[24~"),
         _ => vec![],
     }
 }
-

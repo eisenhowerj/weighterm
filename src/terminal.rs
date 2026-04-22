@@ -5,8 +5,8 @@
 //! calls `Performer::advance` for every byte it receives; the renderer reads
 //! the grid to build vertex buffers each frame.
 
-use std::collections::VecDeque;
 use bitflags::bitflags;
+use std::collections::VecDeque;
 use vte::{Params, Perform};
 
 // ── Cell flags ───────────────────────────────────────────────────────────────
@@ -27,9 +27,10 @@ bitflags! {
 
 // ── Colour representation ────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TermColor {
     /// Default terminal foreground / background
+    #[default]
     Default,
     /// ANSI 0-15 palette index
     Named(u8),
@@ -39,17 +40,13 @@ pub enum TermColor {
     Rgb(u8, u8, u8),
 }
 
-impl Default for TermColor {
-    fn default() -> Self { Self::Default }
-}
-
 // ── Cell ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct Cell {
-    pub c:     char,
-    pub fg:    TermColor,
-    pub bg:    TermColor,
+    pub c: char,
+    pub fg: TermColor,
+    pub bg: TermColor,
     pub flags: CellFlags,
     /// Column-span for wide (e.g. CJK) characters (1 or 2)
     pub width: u8,
@@ -58,9 +55,9 @@ pub struct Cell {
 impl Default for Cell {
     fn default() -> Self {
         Self {
-            c:     ' ',
-            fg:    TermColor::Default,
-            bg:    TermColor::Default,
+            c: ' ',
+            fg: TermColor::Default,
+            bg: TermColor::Default,
             flags: CellFlags::empty(),
             width: 1,
         }
@@ -165,7 +162,10 @@ impl TerminalState {
             if col < self.cols && row < self.rows {
                 let bg = self.current_bg;
                 let idx = row * self.cols + col;
-                self.grid[idx] = Cell { bg, ..Default::default() };
+                self.grid[idx] = Cell {
+                    bg,
+                    ..Default::default()
+                };
             }
             self.cursor.col = 0;
             self.linefeed();
@@ -173,23 +173,23 @@ impl TerminalState {
 
         let (col, row) = (self.cursor.col, self.cursor.row);
         // Copy pen state BEFORE indexing the grid (avoids simultaneous borrows)
-        let fg    = self.current_fg;
-        let bg    = self.current_bg;
+        let fg = self.current_fg;
+        let bg = self.current_bg;
         let flags = self.current_flags;
 
         if col < self.cols && row < self.rows {
             let idx = row * self.cols + col;
-            self.grid[idx].c     = c;
-            self.grid[idx].fg    = fg;
-            self.grid[idx].bg    = bg;
+            self.grid[idx].c = c;
+            self.grid[idx].fg = fg;
+            self.grid[idx].bg = bg;
             self.grid[idx].flags = flags;
             self.grid[idx].width = w;
             // If wide, mark continuation cell
             if w == 2 && col + 1 < self.cols {
                 let idx2 = row * self.cols + col + 1;
-                self.grid[idx2].c     = '\0';
-                self.grid[idx2].fg    = fg;
-                self.grid[idx2].bg    = bg;
+                self.grid[idx2].c = '\0';
+                self.grid[idx2].fg = fg;
+                self.grid[idx2].bg = bg;
                 self.grid[idx2].flags = flags;
                 self.grid[idx2].width = 0;
             }
@@ -214,18 +214,21 @@ impl TerminalState {
     }
 
     pub fn scroll_up(&mut self, n: usize) {
-        let top  = self.scroll_top;
-        let bot  = self.scroll_bot;
+        let top = self.scroll_top;
+        let bot = self.scroll_bot;
         let cols = self.cols;
         let height = bot - top + 1;
-        if height == 0 { return; }
+        if height == 0 {
+            return;
+        }
         let steps = n.min(height);
 
         // Save scrolled-off lines to scrollback (only on main screen and top == 0)
         if !self.alt_screen && top == 0 {
             for row in top..top + steps {
                 let start = row * cols;
-                self.scrollback.push_back(self.grid[start..start + cols].to_vec());
+                self.scrollback
+                    .push_back(self.grid[start..start + cols].to_vec());
                 if self.scrollback.len() > self.scrollback_limit {
                     self.scrollback.pop_front();
                 }
@@ -235,7 +238,7 @@ impl TerminalState {
         // Shift the scroll region up using a rotate (O(n) single move, no per-cell
         // clone loops).
         let start = top * cols;
-        let end   = (bot + 1) * cols;
+        let end = (bot + 1) * cols;
         self.grid[start..end].rotate_left(steps * cols);
 
         // Clear the newly revealed rows at the bottom of the scroll region,
@@ -244,21 +247,26 @@ impl TerminalState {
         for row in (bot + 1 - steps)..=bot {
             let s = row * cols;
             for cell in &mut self.grid[s..s + cols] {
-                *cell = Cell { bg: clear_bg, ..Default::default() };
+                *cell = Cell {
+                    bg: clear_bg,
+                    ..Default::default()
+                };
             }
         }
     }
 
     pub fn scroll_down(&mut self, n: usize) {
-        let top  = self.scroll_top;
-        let bot  = self.scroll_bot;
+        let top = self.scroll_top;
+        let bot = self.scroll_bot;
         let cols = self.cols;
         let height = bot - top + 1;
-        if height == 0 { return; }
+        if height == 0 {
+            return;
+        }
         let steps = n.min(height);
 
         let start = top * cols;
-        let end   = (bot + 1) * cols;
+        let end = (bot + 1) * cols;
         self.grid[start..end].rotate_right(steps * cols);
 
         // Clear the newly revealed rows at the top of the scroll region.
@@ -266,7 +274,10 @@ impl TerminalState {
         for row in top..top + steps {
             let s = row * cols;
             for cell in &mut self.grid[s..s + cols] {
-                *cell = Cell { bg: clear_bg, ..Default::default() };
+                *cell = Cell {
+                    bg: clear_bg,
+                    ..Default::default()
+                };
             }
         }
     }
@@ -277,7 +288,10 @@ impl TerminalState {
         let (cols, rows) = (self.cols, self.rows);
         let (col, row) = (self.cursor.col, self.cursor.row);
         // Use current background colour for erased cells (Background Color Erase).
-        let blank = Cell { bg: self.current_bg, ..Default::default() };
+        let blank = Cell {
+            bg: self.current_bg,
+            ..Default::default()
+        };
         match mode {
             0 => {
                 // Erase from cursor to end of screen
@@ -317,7 +331,10 @@ impl TerminalState {
         let cols = self.cols;
         let (col, row) = (self.cursor.col, self.cursor.row);
         // Use current background colour for erased cells (Background Color Erase).
-        let blank = Cell { bg: self.current_bg, ..Default::default() };
+        let blank = Cell {
+            bg: self.current_bg,
+            ..Default::default()
+        };
         match mode {
             0 => {
                 for c in col..cols {
@@ -366,7 +383,7 @@ impl TerminalState {
 
     fn enter_alt_screen(&mut self) {
         if !self.alt_screen {
-            self.alt_grid   = self.grid.clone();
+            self.alt_grid = self.grid.clone();
             self.alt_cursor = self.cursor.clone();
             for cell in &mut self.grid {
                 *cell = Cell::default();
@@ -378,7 +395,7 @@ impl TerminalState {
 
     fn leave_alt_screen(&mut self) {
         if self.alt_screen {
-            self.grid   = self.alt_grid.clone();
+            self.grid = self.alt_grid.clone();
             self.cursor = self.alt_cursor.clone();
             self.alt_screen = false;
         }
@@ -390,7 +407,11 @@ impl TerminalState {
         match mode {
             25 => { /* show/hide cursor – TODO: expose field */ }
             47 | 1047 | 1049 => {
-                if enable { self.enter_alt_screen(); } else { self.leave_alt_screen(); }
+                if enable {
+                    self.enter_alt_screen();
+                } else {
+                    self.leave_alt_screen();
+                }
             }
             _ => {}
         }
@@ -400,50 +421,89 @@ impl TerminalState {
 
     fn apply_sgr(&mut self, params: &Params) {
         let mut iter = params.iter();
-        loop {
-            let sub = match iter.next() {
-                Some(s) => s,
-                None    => break,
-            };
+        while let Some(sub) = iter.next() {
             let p = sub.first().copied().unwrap_or(0);
             match p {
-                0  => {
-                    self.current_fg    = TermColor::Default;
-                    self.current_bg    = TermColor::Default;
+                0 => {
+                    self.current_fg = TermColor::Default;
+                    self.current_bg = TermColor::Default;
                     self.current_flags = CellFlags::empty();
                 }
-                1  => { self.current_flags.insert(CellFlags::BOLD); }
-                2  => { self.current_flags.insert(CellFlags::DIM); }
-                3  => { self.current_flags.insert(CellFlags::ITALIC); }
-                4  => { self.current_flags.insert(CellFlags::UNDERLINE); }
-                5 | 6 => { self.current_flags.insert(CellFlags::BLINK); }
-                7  => { self.current_flags.insert(CellFlags::REVERSE); }
-                8  => { self.current_flags.insert(CellFlags::HIDDEN); }
-                9  => { self.current_flags.insert(CellFlags::STRIKE); }
-                22 => { self.current_flags.remove(CellFlags::BOLD | CellFlags::DIM); }
-                23 => { self.current_flags.remove(CellFlags::ITALIC); }
-                24 => { self.current_flags.remove(CellFlags::UNDERLINE); }
-                25 => { self.current_flags.remove(CellFlags::BLINK); }
-                27 => { self.current_flags.remove(CellFlags::REVERSE); }
-                28 => { self.current_flags.remove(CellFlags::HIDDEN); }
-                29 => { self.current_flags.remove(CellFlags::STRIKE); }
-                30..=37 => { self.current_fg = TermColor::Named(p as u8 - 30); }
-                38 => { self.current_fg = self.parse_color_ext(&mut iter); }
-                39 => { self.current_fg = TermColor::Default; }
-                40..=47 => { self.current_bg = TermColor::Named(p as u8 - 40); }
-                48 => { self.current_bg = self.parse_color_ext(&mut iter); }
-                49 => { self.current_bg = TermColor::Default; }
-                90..=97  => { self.current_fg = TermColor::Named(p as u8 - 90 + 8); }
-                100..=107 => { self.current_bg = TermColor::Named(p as u8 - 100 + 8); }
+                1 => {
+                    self.current_flags.insert(CellFlags::BOLD);
+                }
+                2 => {
+                    self.current_flags.insert(CellFlags::DIM);
+                }
+                3 => {
+                    self.current_flags.insert(CellFlags::ITALIC);
+                }
+                4 => {
+                    self.current_flags.insert(CellFlags::UNDERLINE);
+                }
+                5 | 6 => {
+                    self.current_flags.insert(CellFlags::BLINK);
+                }
+                7 => {
+                    self.current_flags.insert(CellFlags::REVERSE);
+                }
+                8 => {
+                    self.current_flags.insert(CellFlags::HIDDEN);
+                }
+                9 => {
+                    self.current_flags.insert(CellFlags::STRIKE);
+                }
+                22 => {
+                    self.current_flags.remove(CellFlags::BOLD | CellFlags::DIM);
+                }
+                23 => {
+                    self.current_flags.remove(CellFlags::ITALIC);
+                }
+                24 => {
+                    self.current_flags.remove(CellFlags::UNDERLINE);
+                }
+                25 => {
+                    self.current_flags.remove(CellFlags::BLINK);
+                }
+                27 => {
+                    self.current_flags.remove(CellFlags::REVERSE);
+                }
+                28 => {
+                    self.current_flags.remove(CellFlags::HIDDEN);
+                }
+                29 => {
+                    self.current_flags.remove(CellFlags::STRIKE);
+                }
+                30..=37 => {
+                    self.current_fg = TermColor::Named(p as u8 - 30);
+                }
+                38 => {
+                    self.current_fg = self.parse_color_ext(&mut iter);
+                }
+                39 => {
+                    self.current_fg = TermColor::Default;
+                }
+                40..=47 => {
+                    self.current_bg = TermColor::Named(p as u8 - 40);
+                }
+                48 => {
+                    self.current_bg = self.parse_color_ext(&mut iter);
+                }
+                49 => {
+                    self.current_bg = TermColor::Default;
+                }
+                90..=97 => {
+                    self.current_fg = TermColor::Named(p as u8 - 90 + 8);
+                }
+                100..=107 => {
+                    self.current_bg = TermColor::Named(p as u8 - 100 + 8);
+                }
                 _ => {}
             }
         }
     }
 
-    fn parse_color_ext<'a>(
-        &self,
-        iter: &mut vte::ParamsIter<'a>,
-    ) -> TermColor {
+    fn parse_color_ext<'a>(&self, iter: &mut vte::ParamsIter<'a>) -> TermColor {
         match iter.next().and_then(|s| s.first().copied()) {
             Some(2) => {
                 let r = iter.next().and_then(|s| s.first().copied()).unwrap_or(0);
@@ -478,11 +538,9 @@ impl<'a> Perform for Performer<'a> {
             b'\r' => {
                 self.0.cursor.col = 0;
             }
-            b'\x08' => {
+            b'\x08' if self.0.cursor.col > 0 => {
                 // Backspace
-                if self.0.cursor.col > 0 {
-                    self.0.cursor.col -= 1;
-                }
+                self.0.cursor.col -= 1;
             }
             b'\x07' => { /* Bell – ignored */ }
             b'\t' => {
@@ -508,10 +566,18 @@ impl<'a> Perform for Performer<'a> {
 
         match action {
             // Cursor Up / Down / Forward / Back
-            'A' => { self.0.cursor.row = self.0.cursor.row.saturating_sub(p1.max(1)); }
-            'B' => { self.0.cursor.row = (self.0.cursor.row + p1.max(1)).min(self.0.rows - 1); }
-            'C' => { self.0.cursor.col = (self.0.cursor.col + p1.max(1)).min(self.0.cols - 1); }
-            'D' => { self.0.cursor.col = self.0.cursor.col.saturating_sub(p1.max(1)); }
+            'A' => {
+                self.0.cursor.row = self.0.cursor.row.saturating_sub(p1.max(1));
+            }
+            'B' => {
+                self.0.cursor.row = (self.0.cursor.row + p1.max(1)).min(self.0.rows - 1);
+            }
+            'C' => {
+                self.0.cursor.col = (self.0.cursor.col + p1.max(1)).min(self.0.cols - 1);
+            }
+            'D' => {
+                self.0.cursor.col = self.0.cursor.col.saturating_sub(p1.max(1));
+            }
             'E' => {
                 self.0.cursor.row = (self.0.cursor.row + p1.max(1)).min(self.0.rows - 1);
                 self.0.cursor.col = 0;
@@ -520,24 +586,38 @@ impl<'a> Perform for Performer<'a> {
                 self.0.cursor.row = self.0.cursor.row.saturating_sub(p1.max(1));
                 self.0.cursor.col = 0;
             }
-            'G' => { self.0.cursor.col = p1.saturating_sub(1).min(self.0.cols - 1); }
+            'G' => {
+                self.0.cursor.col = p1.saturating_sub(1).min(self.0.cols - 1);
+            }
             'H' | 'f' => {
                 // CUP – Cursor Position (1-based; 0 treated as 1)
-                let row = if p1 == 0 { 0 } else { (p1 - 1).min(self.0.rows - 1) };
-                let col = if p2 == 0 { 0 } else { (p2 - 1).min(self.0.cols - 1) };
+                let row = if p1 == 0 {
+                    0
+                } else {
+                    (p1 - 1).min(self.0.rows - 1)
+                };
+                let col = if p2 == 0 {
+                    0
+                } else {
+                    (p2 - 1).min(self.0.cols - 1)
+                };
                 self.0.cursor.row = row;
                 self.0.cursor.col = col;
             }
-            'J' => { self.0.erase_display(p1); }
-            'K' => { self.0.erase_line(p1); }
+            'J' => {
+                self.0.erase_display(p1);
+            }
+            'K' => {
+                self.0.erase_line(p1);
+            }
             'L' => {
                 // IL – Insert Line: insert n blank lines at the cursor row,
                 // shifting existing lines down within the scroll region.
                 let cur_row = self.0.cursor.row;
-                let top     = self.0.scroll_top;
-                let bot     = self.0.scroll_bot;
+                let top = self.0.scroll_top;
+                let bot = self.0.scroll_bot;
                 if cur_row >= top && cur_row <= bot {
-                    let n    = p1.max(1).min(bot - cur_row + 1);
+                    let n = p1.max(1).min(bot - cur_row + 1);
                     let cols = self.0.cols;
                     for r in (cur_row..=bot).rev() {
                         for c in 0..cols {
@@ -554,10 +634,10 @@ impl<'a> Perform for Performer<'a> {
                 // DL – Delete Line: delete n lines at the cursor row,
                 // shifting existing lines up within the scroll region.
                 let cur_row = self.0.cursor.row;
-                let top     = self.0.scroll_top;
-                let bot     = self.0.scroll_bot;
+                let top = self.0.scroll_top;
+                let bot = self.0.scroll_bot;
                 if cur_row >= top && cur_row <= bot {
-                    let n    = p1.max(1).min(bot - cur_row + 1);
+                    let n = p1.max(1).min(bot - cur_row + 1);
                     let cols = self.0.cols;
                     for r in cur_row..=bot {
                         for c in 0..cols {
@@ -572,7 +652,7 @@ impl<'a> Perform for Performer<'a> {
             }
             'P' => {
                 // DCH – Delete Character
-                let n   = p1.max(1);
+                let n = p1.max(1);
                 let row = self.0.cursor.row;
                 let col = self.0.cursor.col;
                 let cols = self.0.cols;
@@ -586,9 +666,9 @@ impl<'a> Perform for Performer<'a> {
             }
             '@' => {
                 // ICH – Insert Character
-                let n    = p1.max(1);
-                let row  = self.0.cursor.row;
-                let col  = self.0.cursor.col;
+                let n = p1.max(1);
+                let row = self.0.cursor.row;
+                let col = self.0.cursor.col;
                 let cols = self.0.cols;
                 for c in (col..cols).rev() {
                     self.0.grid[row * cols + c] = if c >= col + n {
@@ -598,15 +678,27 @@ impl<'a> Perform for Performer<'a> {
                     };
                 }
             }
-            'S' => { self.0.scroll_up(p1.max(1)); }
-            'T' => { self.0.scroll_down(p1.max(1)); }
-            'd' => { self.0.cursor.row = p1.saturating_sub(1).min(self.0.rows - 1); }
+            'S' => {
+                self.0.scroll_up(p1.max(1));
+            }
+            'T' => {
+                self.0.scroll_down(p1.max(1));
+            }
+            'd' => {
+                self.0.cursor.row = p1.saturating_sub(1).min(self.0.rows - 1);
+            }
             'h' | 'l' => { /* SM / RM public modes – ignored */ }
-            'm' => { self.0.apply_sgr(params); }
+            'm' => {
+                self.0.apply_sgr(params);
+            }
             'r' => {
                 // DECSTBM – Set Scroll Region
                 let top = p1.saturating_sub(1).min(self.0.rows - 1);
-                let bot = if p2 == 0 { self.0.rows - 1 } else { (p2 - 1).min(self.0.rows - 1) };
+                let bot = if p2 == 0 {
+                    self.0.rows - 1
+                } else {
+                    (p2 - 1).min(self.0.rows - 1)
+                };
                 if top < bot {
                     self.0.scroll_top = top;
                     self.0.scroll_bot = bot;
@@ -636,7 +728,9 @@ impl<'a> Perform for Performer<'a> {
                 self.0.cursor.col = self.0.cursor.saved_col;
                 self.0.cursor.row = self.0.cursor.saved_row;
             }
-            (None, b'D') => { self.0.linefeed(); }
+            (None, b'D') => {
+                self.0.linefeed();
+            }
             (None, b'E') => {
                 self.0.cursor.col = 0;
                 self.0.linefeed();
@@ -651,8 +745,8 @@ impl<'a> Perform for Performer<'a> {
             }
             (None, b'c') => {
                 // RIS – full reset
-                let cols            = self.0.cols;
-                let rows            = self.0.rows;
+                let cols = self.0.cols;
+                let rows = self.0.rows;
                 let scrollback_limit = self.0.scrollback_limit;
                 *self.0 = TerminalState::new(cols, rows, scrollback_limit);
             }
@@ -681,4 +775,3 @@ pub fn process_bytes(state: &mut TerminalState, parser: &mut vte::Parser, data: 
         parser.advance(&mut perf, b);
     }
 }
-

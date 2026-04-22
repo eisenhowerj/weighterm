@@ -7,9 +7,9 @@
 //!  - **output channel**: PTY → application (bytes to feed the VTE parser)
 //!  - **input channel**:  application → PTY (keyboard / paste bytes)
 
-use std::io::{Read, Write};
 use crossbeam_channel::{Receiver, Sender};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::io::{Read, Write};
 
 /// Handle through which the main thread communicates with the PTY.
 pub struct PtyHandle {
@@ -27,7 +27,7 @@ impl PtyHandle {
         let _ = self.master.resize(PtySize {
             rows,
             cols,
-            pixel_width:  0,
+            pixel_width: 0,
             pixel_height: 0,
         });
     }
@@ -48,21 +48,21 @@ pub fn spawn(cols: u16, rows: u16) -> Result<PtyHandle, Box<dyn std::error::Erro
     let pair = pty_system.openpty(PtySize {
         rows,
         cols,
-        pixel_width:  0,
+        pixel_width: 0,
         pixel_height: 0,
     })?;
 
     // Determine shell from $SHELL env var
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let mut cmd = CommandBuilder::new(&shell);
-    cmd.env("TERM",          "xterm-256color");
-    cmd.env("TERM_PROGRAM",  "weighterm");
-    cmd.env("COLORTERM",     "truecolor");
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("TERM_PROGRAM", "weighterm");
+    cmd.env("COLORTERM", "truecolor");
 
     let mut child = pair.slave.spawn_command(cmd)?;
 
     // ── Output: master → application ────────────────────────────────────────
-    let mut reader   = pair.master.try_clone_reader()?;
+    let mut reader = pair.master.try_clone_reader()?;
     let (out_tx, out_rx) = crossbeam_channel::unbounded::<Vec<u8>>();
 
     std::thread::Builder::new()
@@ -72,7 +72,7 @@ pub fn spawn(cols: u16, rows: u16) -> Result<PtyHandle, Box<dyn std::error::Erro
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
-                    Ok(n)          => {
+                    Ok(n) => {
                         if out_tx.send(buf[..n].to_vec()).is_err() {
                             break;
                         }
@@ -88,11 +88,9 @@ pub fn spawn(cols: u16, rows: u16) -> Result<PtyHandle, Box<dyn std::error::Erro
     // PTY master side will see EOF, causing the reader thread above to exit.
     std::thread::Builder::new()
         .name("pty-reaper".into())
-        .spawn(move || {
-            match child.wait() {
-                Ok(status) => log::info!("PTY child exited: {status:?}"),
-                Err(e)     => log::warn!("PTY child wait error: {e}"),
-            }
+        .spawn(move || match child.wait() {
+            Ok(status) => log::info!("PTY child exited: {status:?}"),
+            Err(e) => log::warn!("PTY child wait error: {e}"),
         })?;
 
     // ── Input: application → master ─────────────────────────────────────────
@@ -112,7 +110,7 @@ pub fn spawn(cols: u16, rows: u16) -> Result<PtyHandle, Box<dyn std::error::Erro
 
     Ok(PtyHandle {
         output_rx: out_rx,
-        input_tx:  in_tx,
-        master:    pair.master,
+        input_tx: in_tx,
+        master: pair.master,
     })
 }

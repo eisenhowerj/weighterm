@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: weighterm
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux Release Binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Full fetch depth so we can force-push tags pointing to HEAD
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev pkg-config
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Build release binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Rename binary
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/${{ env.BINARY_NAME }} \
+             ${{ env.BINARY_NAME }}-linux-x86_64
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r --arg binary_name "${{ env.BINARY_NAME }}" \
+                '.packages[] | select(.name == $binary_name) | .version')
+          if [ -z "$VERSION" ]; then
+            echo "Failed to determine version for package '${{ env.BINARY_NAME }}'" >&2
+            exit 1
+          fi
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Force-update git tag to current commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -fa "${{ steps.version.outputs.version }}" \
+            -m "Release ${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}" --force
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: ${{ env.BINARY_NAME }}-linux-x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
