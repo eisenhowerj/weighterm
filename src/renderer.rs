@@ -2,11 +2,13 @@
 //!
 //! Architecture
 //! ─────────────
-//! • **Two render pipelines**
+//! • **Three render pipelines**
 //!   1. *Background pipeline* – solid-colour quads for cell backgrounds.
-//!      No texture sampling; blending disabled.
+//!      Alpha blending enabled so `cfg.window.opacity` is honoured.
 //!   2. *Glyph pipeline* – textured quads sourced from the glyph atlas with
 //!      alpha blending so glyph coverage masks blend over the background.
+//!   3. *Cursor pipeline* – same vertex shader as background, but always uses
+//!      alpha blending so the semi-transparent block cursor blends correctly.
 //!
 //! • **Glyph atlas** – a single R8Unorm 2048×2048 texture.  Glyphs are
 //!   rasterised by cosmic-text / swash and packed using a simple shelf
@@ -18,9 +20,12 @@
 //!
 //! Performance notes
 //! ─────────────────
+//! • Per-row shaping results (glyph positions / cache keys) are cached by row
+//!   text content and reused across frames when the row has not changed, so
+//!   HarfBuzz / cosmic-text work is O(changed rows) instead of O(all rows).
 //! • Vertex buffers are rebuilt from scratch each frame (terminal grids are
 //!   small; typical 80×24 = 1920 cells ≈ 11 520 vertices – negligible GPU
-//!   upload cost).
+//!   upload cost).  TODO: persist vertex buffers and use `queue.write_buffer`.
 //! • `PresentMode::AutoNoVsync` is selected so frames are presented as fast
 //!   as possible (Mailbox → Immediate fallback).
 
@@ -280,6 +285,17 @@ fn push_quad(buf: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: f32, color: [f32;
     buf.extend_from_slice(&[tl, tr, bl,  tr, br, bl]);
 }
 
+// ── Row shaping cache ────────────────────────────────────────────────────────
+
+/// Cached shaping result for a single terminal row.
+/// Keyed by the row's text content; invalidated whenever the text changes.
+struct RowShapeCache {
+    /// The text that was used to produce these glyphs.
+    text:   String,
+    /// Shaped glyph data: (cache_key, x_pixel_offset, baseline_y, byte_offset_in_text)
+    glyphs: Vec<(cosmic_text::CacheKey, f32, f32, usize)>,
+}
+
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
 pub struct Renderer {
@@ -289,6 +305,9 @@ pub struct Renderer {
     surface_cfg:        wgpu::SurfaceConfiguration,
     bg_pipeline:        wgpu::RenderPipeline,
     glyph_pipeline:     wgpu::RenderPipeline,
+    /// Dedicated pipeline for the cursor block; uses alpha blending so the
+    /// cursor's alpha (0.6) actually blends over the cell underneath.
+    cursor_pipeline:    wgpu::RenderPipeline,
     globals_buf:        wgpu::Buffer,
     globals_bg:         wgpu::BindGroup,
     atlas:              GlyphAtlas,
@@ -305,6 +324,9 @@ pub struct Renderer {
     pub cell_height:    f32,
     pub width:          u32,
     pub height:         u32,
+    /// Per-row shaping cache. Entry `i` is valid while `entry.text` matches
+    /// the current row `i` content; cleared on resize.
+    shape_cache:        Vec<Option<RowShapeCache>>,
 }
 
 impl Renderer {
@@ -477,7 +499,7 @@ impl Renderer {
             push_constant_ranges: &[],
         });
 
-        // ── Background pipeline ──────────────────────────────────────────────
+        // ── Background pipeline (alpha blending so opacity < 1.0 shows through) ──
         let bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label:  Some("bg_pipeline"),
             layout: Some(&bg_layout),
@@ -491,7 +513,34 @@ impl Renderer {
                 entry_point: "fs_bg",
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend:      None,
+                    blend:      Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive:    wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample:   wgpu::MultisampleState::default(),
+            multiview:     None,
+        });
+
+        // ── Cursor pipeline (same geometry as bg, always alpha-blended) ──────
+        let cursor_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label:  Some("cursor_pipeline"),
+            layout: Some(&bg_layout),
+            vertex: wgpu::VertexState {
+                module:      &shader,
+                entry_point: "vs_main",
+                buffers:     &[vbl.clone()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module:      &shader,
+                entry_point: "fs_bg",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend:      Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -542,13 +591,14 @@ impl Renderer {
 
         Ok(Self {
             surface, device, queue, surface_cfg,
-            bg_pipeline, glyph_pipeline,
+            bg_pipeline, glyph_pipeline, cursor_pipeline,
             globals_buf, globals_bg,
             atlas, atlas_sampler, atlas_bg, atlas_bgl,
             font_system, swash_cache,
             cell_width, cell_height,
             width:  size.width,
             height: size.height,
+            shape_cache: Vec::new(),
         })
     }
 
@@ -596,6 +646,9 @@ impl Renderer {
                 _pad: [0.0; 2],
             }),
         );
+
+        // Invalidate the row shaping cache; row count will have changed.
+        self.shape_cache.clear();
     }
 
     /// Terminal grid dimensions in (cols, rows) given current cell size.
@@ -701,7 +754,7 @@ impl Renderer {
                 timestamp_writes:         None,
                 occlusion_query_set:      None,
             });
-            pass.set_pipeline(&self.bg_pipeline);
+            pass.set_pipeline(&self.cursor_pipeline);
             pass.set_bind_group(0, &self.globals_bg, &[]);
             pass.set_vertex_buffer(0, cursor_buf.slice(..));
             pass.draw(0..cursor_verts.len() as u32, 0..1);
@@ -725,13 +778,20 @@ impl Renderer {
         let cw = self.cell_width;
         let ch = self.cell_height;
 
-        // We need to borrow atlas, font_system, swash_cache, and queue
-        // simultaneously. Rust allows multiple distinct fields to be borrowed
-        // at once through explicit field paths within one scope.
-        let atlas       = &mut self.atlas;
-        let font_system = &mut self.font_system;
-        let swash_cache = &mut self.swash_cache;
-        let queue       = &self.queue;
+        // We need to borrow atlas, font_system, swash_cache, queue, and
+        // shape_cache simultaneously. Rust allows multiple distinct fields to be
+        // borrowed at once through explicit field paths within one scope.
+        let atlas        = &mut self.atlas;
+        let font_system  = &mut self.font_system;
+        let swash_cache  = &mut self.swash_cache;
+        let queue        = &self.queue;
+        let shape_cache  = &mut self.shape_cache;
+        let opacity      = cfg.window.opacity;
+
+        // Ensure the cache vector is large enough.
+        if shape_cache.len() < terminal.rows {
+            shape_cache.resize_with(terminal.rows, || None);
+        }
 
         for row in 0..terminal.rows {
             // ── Background quads ─────────────────────────────────────────────
@@ -741,6 +801,10 @@ impl Renderer {
                 if cell.flags.contains(CellFlags::REVERSE) {
                     bg = resolve_color(cell.fg, &cfg.theme, true);
                 }
+                // Propagate window opacity into each background quad's alpha so
+                // that `cfg.window.opacity < 1.0` makes the terminal translucent.
+                // The bg_pipeline uses alpha blending, so this value is honoured.
+                bg[3] = opacity;
                 let x = col as f32 * cw;
                 let y = row as f32 * ch;
                 push_quad(&mut bg_verts, x, y, cw, ch, bg, [0.0; 2], [0.0; 2]);
@@ -754,30 +818,48 @@ impl Renderer {
                 })
                 .collect();
 
-            let shaping = if cfg.font.ligatures { Shaping::Advanced } else { Shaping::Basic };
-            let metrics = Metrics::new(cfg.font.size, ch);
+            // Per-row shaping cache: only re-invoke HarfBuzz / cosmic-text when
+            // the row's text content has actually changed.
+            let cache_hit = shape_cache
+                .get(row)
+                .and_then(|e| e.as_ref())
+                .map(|e| e.text == line_text)
+                .unwrap_or(false);
 
-            // Shape the line
-            let mut buf = Buffer::new(font_system, metrics);
-            buf.set_size(font_system, terminal.cols as f32 * cw, ch);
-            buf.set_text(
-                font_system,
-                &line_text,
-                Attrs::new().family(Family::Name(&cfg.font.family)),
-                shaping,
-            );
-            buf.shape_until_scroll(font_system, false);
+            let glyph_data: Vec<(cosmic_text::CacheKey, f32, f32, usize)> = if cache_hit {
+                shape_cache[row].as_ref().unwrap().glyphs.clone()
+            } else {
+                let shaping = if cfg.font.ligatures { Shaping::Advanced } else { Shaping::Basic };
+                let metrics = Metrics::new(cfg.font.size, ch);
 
-            // Collect (cache_key, x_offset, baseline_y, byte_offset)
-            let mut glyph_data: Vec<(cosmic_text::CacheKey, f32, f32, usize)> = Vec::new();
-            for run in buf.layout_runs() {
-                for g in run.glyphs.iter() {
-                    let phys = g.physical((0.0, 0.0), 1.0);
-                    glyph_data.push((phys.cache_key, g.x, run.line_y, g.start));
+                let mut buf = Buffer::new(font_system, metrics);
+                buf.set_size(font_system, terminal.cols as f32 * cw, ch);
+                buf.set_text(
+                    font_system,
+                    &line_text,
+                    Attrs::new().family(Family::Name(&cfg.font.family)),
+                    shaping,
+                );
+                buf.shape_until_scroll(font_system, false);
+
+                let mut data: Vec<(cosmic_text::CacheKey, f32, f32, usize)> = Vec::new();
+                for run in buf.layout_runs() {
+                    for g in run.glyphs.iter() {
+                        let phys = g.physical((0.0, 0.0), 1.0);
+                        data.push((phys.cache_key, g.x, run.line_y, g.start));
+                    }
                 }
-            }
-            // `buf` (and its font_system borrow) is dropped here
-            drop(buf);
+                // `buf` (and its font_system borrow) is dropped here
+                drop(buf);
+
+                // Store in cache
+                shape_cache[row] = Some(RowShapeCache {
+                    text:   line_text.clone(),
+                    glyphs: data.clone(),
+                });
+
+                data
+            };
 
             // ── Upload glyphs to atlas and emit quads ────────────────────────
             for (cache_key, gx, baseline, byte_off) in glyph_data {

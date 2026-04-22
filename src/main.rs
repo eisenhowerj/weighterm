@@ -108,11 +108,15 @@ fn main() {
                     let (cols, rows) = r.grid_size();
                     if let Ok(mut term) = terminal.lock() {
                         term.resize(cols, rows);
+                        // The PTY is about to be spawned with these exact dimensions,
+                        // so clear the pending_resize flag to avoid a redundant
+                        // TIOCSWINSZ call on the first PTY data event.
+                        term.pending_resize = None;
                     }
                     // Spawn PTY with the correct dimensions
                     let proxy2 = proxy.clone();
                     match pty::spawn(cols as u16, rows as u16) {
-                        Ok((handle, _exit)) => {
+                        Ok(handle) => {
                             let rx = handle.output_rx.clone();
                             std::thread::Builder::new()
                                 .name("pty-forwarder".into())

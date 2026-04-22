@@ -227,7 +227,11 @@ impl Config {
         Some(base.join("weighterm").join("config.toml"))
     }
 
-    /// Parse a `#rrggbb` hex colour string into linear [r, g, b, a] floats.
+    /// Parse a `#rrggbb` hex colour string into sRGB-normalized [r, g, b, a] floats.
+    /// Values are in the range 0.0–1.0 (direct mapping from 0–255); no sRGB→linear
+    /// conversion is applied.  This is consistent with what wgpu expects when the
+    /// surface format is sRGB (e.g. `Bgra8UnormSrgb`), because wgpu performs the
+    /// hardware-accelerated linearisation at sample/write time.
     pub fn parse_hex_color(hex: &str) -> [f32; 4] {
         let h = hex.trim_start_matches('#');
         if h.len() == 6 {

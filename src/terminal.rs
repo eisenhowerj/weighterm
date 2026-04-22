@@ -156,6 +156,21 @@ impl TerminalState {
         use unicode_width::UnicodeWidthChar;
         let w = c.width().unwrap_or(1).max(1) as u8;
 
+        // For wide characters that would overflow the current line (no room for
+        // the continuation cell in the next column), place a blank in the last
+        // column and wrap first.  This matches xterm / VTE behaviour.
+        if w == 2 && self.cursor.col + 1 >= self.cols {
+            let col = self.cursor.col;
+            let row = self.cursor.row;
+            if col < self.cols && row < self.rows {
+                let bg = self.current_bg;
+                let idx = row * self.cols + col;
+                self.grid[idx] = Cell { bg, ..Default::default() };
+            }
+            self.cursor.col = 0;
+            self.linefeed();
+        }
+
         let (col, row) = (self.cursor.col, self.cursor.row);
         // Copy pen state BEFORE indexing the grid (avoids simultaneous borrows)
         let fg    = self.current_fg;
@@ -199,57 +214,59 @@ impl TerminalState {
     }
 
     pub fn scroll_up(&mut self, n: usize) {
-        let top = self.scroll_top;
-        let bot = self.scroll_bot;
+        let top  = self.scroll_top;
+        let bot  = self.scroll_bot;
         let cols = self.cols;
+        let height = bot - top + 1;
+        if height == 0 { return; }
+        let steps = n.min(height);
 
-        for _ in 0..n {
-            // Save topmost line to scrollback (only on main screen and top==0)
-            if !self.alt_screen && top == 0 {
-                let line: Vec<Cell> = (0..cols)
-                    .map(|c| self.grid[top * cols + c].clone())
-                    .collect();
-                self.scrollback.push_back(line);
+        // Save scrolled-off lines to scrollback (only on main screen and top == 0)
+        if !self.alt_screen && top == 0 {
+            for row in top..top + steps {
+                let start = row * cols;
+                self.scrollback.push_back(self.grid[start..start + cols].to_vec());
                 if self.scrollback.len() > self.scrollback_limit {
                     self.scrollback.pop_front();
                 }
             }
-            // Shift rows up within scroll region
-            for row in top..bot {
-                let src = (row + 1) * cols;
-                let dst = row * cols;
-                for c in 0..cols {
-                    self.grid[dst + c] = self.grid[src + c].clone();
-                }
-            }
-            // Clear the bottom row
-            for c in 0..cols {
-                self.grid[bot * cols + c] = Cell {
-                    bg: self.current_bg,
-                    ..Default::default()
-                };
+        }
+
+        // Shift the scroll region up using a rotate (O(n) single move, no per-cell
+        // clone loops).
+        let start = top * cols;
+        let end   = (bot + 1) * cols;
+        self.grid[start..end].rotate_left(steps * cols);
+
+        // Clear the newly revealed rows at the bottom of the scroll region,
+        // preserving the current background color (Background Color Erase).
+        let clear_bg = self.current_bg;
+        for row in (bot + 1 - steps)..=bot {
+            let s = row * cols;
+            for cell in &mut self.grid[s..s + cols] {
+                *cell = Cell { bg: clear_bg, ..Default::default() };
             }
         }
     }
 
     pub fn scroll_down(&mut self, n: usize) {
-        let top = self.scroll_top;
-        let bot = self.scroll_bot;
+        let top  = self.scroll_top;
+        let bot  = self.scroll_bot;
         let cols = self.cols;
+        let height = bot - top + 1;
+        if height == 0 { return; }
+        let steps = n.min(height);
 
-        for _ in 0..n {
-            for row in (top + 1..=bot).rev() {
-                let src = (row - 1) * cols;
-                let dst = row * cols;
-                for c in 0..cols {
-                    self.grid[dst + c] = self.grid[src + c].clone();
-                }
-            }
-            for c in 0..cols {
-                self.grid[top * cols + c] = Cell {
-                    bg: self.current_bg,
-                    ..Default::default()
-                };
+        let start = top * cols;
+        let end   = (bot + 1) * cols;
+        self.grid[start..end].rotate_right(steps * cols);
+
+        // Clear the newly revealed rows at the top of the scroll region.
+        let clear_bg = self.current_bg;
+        for row in top..top + steps {
+            let s = row * cols;
+            for cell in &mut self.grid[s..s + cols] {
+                *cell = Cell { bg: clear_bg, ..Default::default() };
             }
         }
     }
@@ -259,33 +276,35 @@ impl TerminalState {
     fn erase_display(&mut self, mode: usize) {
         let (cols, rows) = (self.cols, self.rows);
         let (col, row) = (self.cursor.col, self.cursor.row);
+        // Use current background colour for erased cells (Background Color Erase).
+        let blank = Cell { bg: self.current_bg, ..Default::default() };
         match mode {
             0 => {
-                // Erase from cursor to end
+                // Erase from cursor to end of screen
                 for c in col..cols {
-                    self.grid[row * cols + c] = Cell::default();
+                    self.grid[row * cols + c] = blank.clone();
                 }
                 for r in (row + 1)..rows {
                     for c in 0..cols {
-                        self.grid[r * cols + c] = Cell::default();
+                        self.grid[r * cols + c] = blank.clone();
                     }
                 }
             }
             1 => {
-                // Erase from start to cursor
+                // Erase from start of screen to cursor
                 for r in 0..row {
                     for c in 0..cols {
-                        self.grid[r * cols + c] = Cell::default();
+                        self.grid[r * cols + c] = blank.clone();
                     }
                 }
                 for c in 0..=col {
-                    self.grid[row * cols + c] = Cell::default();
+                    self.grid[row * cols + c] = blank.clone();
                 }
             }
             2 | 3 => {
                 // Erase entire screen
                 for cell in &mut self.grid {
-                    *cell = Cell::default();
+                    *cell = blank.clone();
                 }
                 self.cursor.col = 0;
                 self.cursor.row = 0;
@@ -297,20 +316,22 @@ impl TerminalState {
     fn erase_line(&mut self, mode: usize) {
         let cols = self.cols;
         let (col, row) = (self.cursor.col, self.cursor.row);
+        // Use current background colour for erased cells (Background Color Erase).
+        let blank = Cell { bg: self.current_bg, ..Default::default() };
         match mode {
             0 => {
                 for c in col..cols {
-                    self.grid[row * cols + c] = Cell::default();
+                    self.grid[row * cols + c] = blank.clone();
                 }
             }
             1 => {
                 for c in 0..=col {
-                    self.grid[row * cols + c] = Cell::default();
+                    self.grid[row * cols + c] = blank.clone();
                 }
             }
             2 => {
                 for c in 0..cols {
-                    self.grid[row * cols + c] = Cell::default();
+                    self.grid[row * cols + c] = blank.clone();
                 }
             }
             _ => {}
@@ -509,8 +530,46 @@ impl<'a> Perform for Performer<'a> {
             }
             'J' => { self.0.erase_display(p1); }
             'K' => { self.0.erase_line(p1); }
-            'L' => { self.0.scroll_down(p1.max(1)); }
-            'M' => { self.0.scroll_up(p1.max(1)); }
+            'L' => {
+                // IL – Insert Line: insert n blank lines at the cursor row,
+                // shifting existing lines down within the scroll region.
+                let cur_row = self.0.cursor.row;
+                let top     = self.0.scroll_top;
+                let bot     = self.0.scroll_bot;
+                if cur_row >= top && cur_row <= bot {
+                    let n    = p1.max(1).min(bot - cur_row + 1);
+                    let cols = self.0.cols;
+                    for r in (cur_row..=bot).rev() {
+                        for c in 0..cols {
+                            self.0.grid[r * cols + c] = if r >= cur_row + n {
+                                self.0.grid[(r - n) * cols + c].clone()
+                            } else {
+                                Cell::default()
+                            };
+                        }
+                    }
+                }
+            }
+            'M' => {
+                // DL – Delete Line: delete n lines at the cursor row,
+                // shifting existing lines up within the scroll region.
+                let cur_row = self.0.cursor.row;
+                let top     = self.0.scroll_top;
+                let bot     = self.0.scroll_bot;
+                if cur_row >= top && cur_row <= bot {
+                    let n    = p1.max(1).min(bot - cur_row + 1);
+                    let cols = self.0.cols;
+                    for r in cur_row..=bot {
+                        for c in 0..cols {
+                            self.0.grid[r * cols + c] = if r + n <= bot {
+                                self.0.grid[(r + n) * cols + c].clone()
+                            } else {
+                                Cell::default()
+                            };
+                        }
+                    }
+                }
+            }
             'P' => {
                 // DCH – Delete Character
                 let n   = p1.max(1);

@@ -8,7 +8,6 @@
 //!  - **input channel**:  application → PTY (keyboard / paste bytes)
 
 use std::io::{Read, Write};
-use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
@@ -41,9 +40,9 @@ impl PtyHandle {
 
 /// Spawn a PTY with the user's shell running inside it.
 ///
-/// Returns a `PtyHandle` for the caller and a `ChildExitHandle` that resolves
-/// when the child exits.
-pub fn spawn(cols: u16, rows: u16) -> Result<(PtyHandle, Arc<std::sync::Mutex<Option<u32>>>), Box<dyn std::error::Error>> {
+/// Returns a `PtyHandle` for the caller.  The handle's `output_rx` channel
+/// closes when the child process exits, which signals `PtyExit` to the app.
+pub fn spawn(cols: u16, rows: u16) -> Result<PtyHandle, Box<dyn std::error::Error>> {
     let pty_system = native_pty_system();
 
     let pair = pty_system.openpty(PtySize {
@@ -60,7 +59,7 @@ pub fn spawn(cols: u16, rows: u16) -> Result<(PtyHandle, Arc<std::sync::Mutex<Op
     cmd.env("TERM_PROGRAM",  "weighterm");
     cmd.env("COLORTERM",     "truecolor");
 
-    let _child = pair.slave.spawn_command(cmd)?;
+    let mut child = pair.slave.spawn_command(cmd)?;
 
     // ── Output: master → application ────────────────────────────────────────
     let mut reader   = pair.master.try_clone_reader()?;
@@ -81,6 +80,19 @@ pub fn spawn(cols: u16, rows: u16) -> Result<(PtyHandle, Arc<std::sync::Mutex<Op
                 }
             }
             log::info!("PTY reader thread exiting");
+            // out_tx is dropped here, closing the channel and signalling PtyExit.
+        })?;
+
+    // ── Reaper: wait for child exit to avoid zombie processes ───────────────
+    // The child must be kept alive until it exits. Once wait() returns, the
+    // PTY master side will see EOF, causing the reader thread above to exit.
+    std::thread::Builder::new()
+        .name("pty-reaper".into())
+        .spawn(move || {
+            match child.wait() {
+                Ok(status) => log::info!("PTY child exited: {status:?}"),
+                Err(e)     => log::warn!("PTY child wait error: {e}"),
+            }
         })?;
 
     // ── Input: application → master ─────────────────────────────────────────
@@ -98,14 +110,9 @@ pub fn spawn(cols: u16, rows: u16) -> Result<(PtyHandle, Arc<std::sync::Mutex<Op
             log::info!("PTY writer thread exiting");
         })?;
 
-    let exit_status = Arc::new(std::sync::Mutex::new(None::<u32>));
-
-    Ok((
-        PtyHandle {
-            output_rx: out_rx,
-            input_tx:  in_tx,
-            master:    pair.master,
-        },
-        exit_status,
-    ))
+    Ok(PtyHandle {
+        output_rx: out_rx,
+        input_tx:  in_tx,
+        master:    pair.master,
+    })
 }
