@@ -6,38 +6,96 @@ use std::path::PathBuf;
 
 // ── default helpers ─────────────────────────────────────────────────────────
 
-fn d_width() -> u32 { 1024 }
-fn d_height() -> u32 { 768 }
-fn d_title() -> String { "weighterm".into() }
-fn d_opacity() -> f32 { 1.0 }
+fn d_width() -> u32 {
+    1024
+}
+fn d_height() -> u32 {
+    768
+}
+fn d_title() -> String {
+    "weighterm".into()
+}
+fn d_opacity() -> f32 {
+    1.0
+}
 
-fn d_font_family() -> String { "monospace".into() }
-fn d_font_size() -> f32 { 14.0 }
-fn d_ligatures() -> bool { true }
+fn d_font_family() -> String {
+    "monospace".into()
+}
+fn d_font_size() -> f32 {
+    14.0
+}
+fn d_ligatures() -> bool {
+    true
+}
 
-fn d_theme_name() -> String { "night-owl".into() }
-fn d_bg() -> String { "#011627".into() }
-fn d_fg() -> String { "#d6deeb".into() }
-fn d_cursor() -> String { "#80a4c2".into() }
-fn d_black() -> String { "#011627".into() }
-fn d_red() -> String { "#ef5350".into() }
-fn d_green() -> String { "#22da6e".into() }
-fn d_yellow() -> String { "#addb67".into() }
-fn d_blue() -> String { "#82aaff".into() }
-fn d_magenta() -> String { "#c792ea".into() }
-fn d_cyan() -> String { "#21c7a8".into() }
-fn d_white() -> String { "#d6deeb".into() }
-fn d_bright_black() -> String { "#575656".into() }
-fn d_bright_red() -> String { "#ef5350".into() }
-fn d_bright_green() -> String { "#22da6e".into() }
-fn d_bright_yellow() -> String { "#ffeb95".into() }
-fn d_bright_blue() -> String { "#82aaff".into() }
-fn d_bright_magenta() -> String { "#c792ea".into() }
-fn d_bright_cyan() -> String { "#7fdbca".into() }
-fn d_bright_white() -> String { "#ffffff".into() }
+fn d_theme_name() -> String {
+    "night-owl".into()
+}
+fn d_bg() -> String {
+    "#011627".into()
+}
+fn d_fg() -> String {
+    "#d6deeb".into()
+}
+fn d_cursor() -> String {
+    "#80a4c2".into()
+}
+fn d_black() -> String {
+    "#011627".into()
+}
+fn d_red() -> String {
+    "#ef5350".into()
+}
+fn d_green() -> String {
+    "#22da6e".into()
+}
+fn d_yellow() -> String {
+    "#addb67".into()
+}
+fn d_blue() -> String {
+    "#82aaff".into()
+}
+fn d_magenta() -> String {
+    "#c792ea".into()
+}
+fn d_cyan() -> String {
+    "#21c7a8".into()
+}
+fn d_white() -> String {
+    "#d6deeb".into()
+}
+fn d_bright_black() -> String {
+    "#575656".into()
+}
+fn d_bright_red() -> String {
+    "#ef5350".into()
+}
+fn d_bright_green() -> String {
+    "#22da6e".into()
+}
+fn d_bright_yellow() -> String {
+    "#ffeb95".into()
+}
+fn d_bright_blue() -> String {
+    "#82aaff".into()
+}
+fn d_bright_magenta() -> String {
+    "#c792ea".into()
+}
+fn d_bright_cyan() -> String {
+    "#7fdbca".into()
+}
+fn d_bright_white() -> String {
+    "#ffffff".into()
+}
 
-fn d_scrollback() -> usize { 10_000 }
-fn d_scroll_mult() -> f32 { 3.0 }
+fn d_scrollback() -> usize {
+    10_000
+}
+fn d_scroll_mult() -> f32 {
+    3.0
+}
 
 // ── sub-structs ──────────────────────────────────────────────────────────────
 
@@ -89,52 +147,71 @@ pub struct ThemeConfig {
     #[serde(default = "d_theme_name")]
     pub name: String,
 
-    #[serde(default = "d_bg")]       pub background:    String,
-    #[serde(default = "d_fg")]       pub foreground:    String,
-    #[serde(default = "d_cursor")]   pub cursor:        String,
+    #[serde(default = "d_bg")]
+    pub background: String,
+    #[serde(default = "d_fg")]
+    pub foreground: String,
+    #[serde(default = "d_cursor")]
+    pub cursor: String,
 
-    #[serde(default = "d_black")]    pub black:         String,
-    #[serde(default = "d_red")]      pub red:           String,
-    #[serde(default = "d_green")]    pub green:         String,
-    #[serde(default = "d_yellow")]   pub yellow:        String,
-    #[serde(default = "d_blue")]     pub blue:          String,
-    #[serde(default = "d_magenta")]  pub magenta:       String,
-    #[serde(default = "d_cyan")]     pub cyan:          String,
-    #[serde(default = "d_white")]    pub white:         String,
+    #[serde(default = "d_black")]
+    pub black: String,
+    #[serde(default = "d_red")]
+    pub red: String,
+    #[serde(default = "d_green")]
+    pub green: String,
+    #[serde(default = "d_yellow")]
+    pub yellow: String,
+    #[serde(default = "d_blue")]
+    pub blue: String,
+    #[serde(default = "d_magenta")]
+    pub magenta: String,
+    #[serde(default = "d_cyan")]
+    pub cyan: String,
+    #[serde(default = "d_white")]
+    pub white: String,
 
-    #[serde(default = "d_bright_black")]   pub bright_black:   String,
-    #[serde(default = "d_bright_red")]     pub bright_red:     String,
-    #[serde(default = "d_bright_green")]   pub bright_green:   String,
-    #[serde(default = "d_bright_yellow")]  pub bright_yellow:  String,
-    #[serde(default = "d_bright_blue")]    pub bright_blue:    String,
-    #[serde(default = "d_bright_magenta")] pub bright_magenta: String,
-    #[serde(default = "d_bright_cyan")]    pub bright_cyan:    String,
-    #[serde(default = "d_bright_white")]   pub bright_white:   String,
+    #[serde(default = "d_bright_black")]
+    pub bright_black: String,
+    #[serde(default = "d_bright_red")]
+    pub bright_red: String,
+    #[serde(default = "d_bright_green")]
+    pub bright_green: String,
+    #[serde(default = "d_bright_yellow")]
+    pub bright_yellow: String,
+    #[serde(default = "d_bright_blue")]
+    pub bright_blue: String,
+    #[serde(default = "d_bright_magenta")]
+    pub bright_magenta: String,
+    #[serde(default = "d_bright_cyan")]
+    pub bright_cyan: String,
+    #[serde(default = "d_bright_white")]
+    pub bright_white: String,
 }
 
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            name:           d_theme_name(),
-            background:     d_bg(),
-            foreground:     d_fg(),
-            cursor:         d_cursor(),
-            black:          d_black(),
-            red:            d_red(),
-            green:          d_green(),
-            yellow:         d_yellow(),
-            blue:           d_blue(),
-            magenta:        d_magenta(),
-            cyan:           d_cyan(),
-            white:          d_white(),
-            bright_black:   d_bright_black(),
-            bright_red:     d_bright_red(),
-            bright_green:   d_bright_green(),
-            bright_yellow:  d_bright_yellow(),
-            bright_blue:    d_bright_blue(),
+            name: d_theme_name(),
+            background: d_bg(),
+            foreground: d_fg(),
+            cursor: d_cursor(),
+            black: d_black(),
+            red: d_red(),
+            green: d_green(),
+            yellow: d_yellow(),
+            blue: d_blue(),
+            magenta: d_magenta(),
+            cyan: d_cyan(),
+            white: d_white(),
+            bright_black: d_bright_black(),
+            bright_red: d_bright_red(),
+            bright_green: d_bright_green(),
+            bright_yellow: d_bright_yellow(),
+            bright_blue: d_bright_blue(),
             bright_magenta: d_bright_magenta(),
-            bright_cyan:    d_bright_cyan(),
-            bright_white:   d_bright_white(),
+            bright_cyan: d_bright_cyan(),
+            bright_white: d_bright_white(),
         }
     }
 }
@@ -143,23 +220,23 @@ impl ThemeConfig {
     /// Return the ANSI colour hex string for palette index 0-15.
     pub fn ansi_color(&self, idx: u8) -> &str {
         match idx {
-            0  => &self.black,
-            1  => &self.red,
-            2  => &self.green,
-            3  => &self.yellow,
-            4  => &self.blue,
-            5  => &self.magenta,
-            6  => &self.cyan,
-            7  => &self.white,
-            8  => &self.bright_black,
-            9  => &self.bright_red,
+            0 => &self.black,
+            1 => &self.red,
+            2 => &self.green,
+            3 => &self.yellow,
+            4 => &self.blue,
+            5 => &self.magenta,
+            6 => &self.cyan,
+            7 => &self.white,
+            8 => &self.bright_black,
+            9 => &self.bright_red,
             10 => &self.bright_green,
             11 => &self.bright_yellow,
             12 => &self.bright_blue,
             13 => &self.bright_magenta,
             14 => &self.bright_cyan,
             15 => &self.bright_white,
-            _  => &self.foreground,
+            _ => &self.foreground,
         }
     }
 }
@@ -223,7 +300,7 @@ impl Config {
     fn config_path() -> Option<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .or_else(|| dirs::config_dir())?;
+            .or_else(dirs::config_dir)?;
         Some(base.join("weighterm").join("config.toml"))
     }
 
